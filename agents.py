@@ -66,14 +66,18 @@ class Agents:
         """
         matrix_visible_temp = self.matrix_visible
         list_len_row = []
-        for row in self.matrix_visible:
-            len_row = len(row)
-            list_len_row.append(len_row)
-        max_row = max(list_len_row)
-        matrix_visible_temp[max_row].append((0, 0, fee))
+        if matrix_visible_temp:
+            for row in self.matrix_visible:
+                len_row = len(row)
+                list_len_row.append(len_row)
+            max_row = max(list_len_row)
+            index=list_len_row.index(max_row)
+            matrix_visible_temp[index].append((0, 0, fee))
+        else:
+            matrix_visible_temp.append([(0, 0, fee)])
         return matrix_visible_temp, fee
 
-    def policy(self):
+    def policy(self,hash_power,matrix,agent_hash):
         """
         This function writes by students!POLICY
         [{1:10,2:20}]
@@ -89,12 +93,12 @@ class Agents:
         sTilda = (1 + e * (1 - np.sum(args))) * self.hash_power
         return sTilda
 
-    def callPolicy(self, fee):
+    def callPolicy(self, fee,agent_hash):
         """
         for each agent call policy and return vector of block
         """
-        matrix_visible_temp = self.createMatrixForPolicy(fee)
-        context = self.policy(self.hash_power, matrix_visible_temp)
+        matrix_visible_temp,fee = self.createMatrixForPolicy(fee)
+        context = self.policy(self.hash_power, matrix_visible_temp,agent_hash)
         self.blocks_for_mine = context['block']  ### همین جا باید کدوم بلاک چقدره رو جدا کنی!!!
         self.strategy = context['strategy']
         self.agent_visible = context['visibility']
@@ -105,7 +109,10 @@ class Agents:
         :return:
         """
         sum_strategy = sum(self.strategy)
-        block = list(self.blocks_for_mine.key())
+        block=[]
+        for i in self.blocks_for_mine:
+            key=list(i.keys())[0]
+            block.append(i[key])
         sum_block = sum(block)
         if sum_block + sum_strategy != self.hash_power:
             self.strategy = 0
@@ -118,8 +125,9 @@ class Agents:
         hash_block = self.blocks_for_mine
         attack = self.hash_power - self.hash_effective
         for i in hash_block:
-            j = hash_block[i] - attack
-            hash_block[i] = j
+            name=list(i.keys())[0]
+            j = i[name] - attack
+            i[name]=j
         return hash_block
 
     def blocksAgentWantToMine(self):
@@ -128,11 +136,14 @@ class Agents:
         :return:list of id of blocks
         """
         block_and_hash = self.hashOfEachBlockAfterAttack()
-        blocks = list(block_and_hash.keys())
+        blocks=[]
+        for i in block_and_hash:
+            name=list(i.keys())[0]
+            blocks.append(name)
         return blocks
 
     def __str__(self):
-        return self.user, self.hash_power
+        return self.user_name, self.hash_power
 
     @staticmethod
     def createMatrixOfBlocksAgentsWantsToMine():
@@ -147,17 +158,27 @@ class Agents:
         for i in agents:
             v = {}
             b = i.blocksAgentWantToMine()
-            set_block.append(b)
+            for j in b:
+                set_block.append(j)
             v[i.id] = b
             agent_block.append(v)
         set_block.sort()
         set_block = set(set_block)
+        len_blocks=len(set_block)
+        for i in range(len(matrix)):
+            matrix[i]=[0]*len_blocks
         k = 0
         for i in agents:
             for j in set_block:
                 if j in agent_block[k][i.id]:
-                    matrix[i.id][j] = i.hashOfEachBlockAfterAttack()[j]
+                    hash_block=i.hashOfEachBlockAfterAttack()
+                    keys=[]
+                    for q in hash_block:
+                        key=list(q.keys())[0]
+                        keys.append(key)
+                    index=keys.index(j)
+                    matrix[i.id-1][j-1] = hash_block[index][j]
                 else:
                     matrix[i.id][j] = 0
                 k += 1
-        return matrix
+        return matrix ,list(set_block)

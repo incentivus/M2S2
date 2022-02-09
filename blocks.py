@@ -37,22 +37,19 @@ class Block:
     id = 0
     list_of_blocks_height = []
 
-    def __init__(self, owner, father, status=False, visibility=None):
+    def __init__(self, owner, father, fee):
         """
         :param id: this is a unique id and we don't have block with 0.
         :param owner: id of agent that mined block.
         :param father: id if block that new block mined on ir.
-        :param status: ???
-        :param visibility:???
-        :param block_height: block_father +1 ??????
+        :param block_height: block_father +1
         """
         self.id = Block.id + 1
         self.owner = owner
         self.father = father
         self.block_height = self.father + 1
         self.block_reward = BLOCK_REWARD
-        self.status = status
-        self.visibility = visibility
+        self.fee = fee
         Block.id += 1
 
     def __str__(self):
@@ -85,12 +82,14 @@ class Block:
         for i in users:
             s = multiply(matrix, i.id - 1)
             sT = i.action(e, matrix[i.id - 1]) * s
-            i.effective_hash = sT
+            if sT < 0:
+                sT = 0
+            i.hash_effective = sT
             pay_off[i.id] = sT
         return pay_off
 
     @staticmethod
-    def mining(payoff, n=None):
+    def mining(payoff, n, fee):
         """
         This function determine status of each block
         :param payoff: {'user_id': hash_power, ... }
@@ -100,11 +99,14 @@ class Block:
         r = random.randint(1, LIMIT_HASH_POWER)
         sumH = sum(list(payoff.values()))
         payoff = sorted(payoff.items(), key=lambda item: item[1])
-        ro = random.randint(1, sumH)
+        ro = random.randint(1, int(sumH))
         if r < sumH:
             own = find_owner(payoff, ro)
-            block = Block(owner=own)
-            return block
+            if own is not None:
+                block = Block(owner=own, father=n, fee=fee)
+                return block
+            else:
+                return None
         else:
             return None
 
@@ -113,12 +115,13 @@ class Block:
         for each new block determine for which agents is visible.
         :return:
         """
-        id = Agents.agents.index(self.owner)
-        agent = Agents.agents[id]
+        for ag in Agents.agents:
+            if ag.id == self.owner:
+                agent = ag
         visibility = agent.agent_visible
         for i in range(len(visibility)):
             if visibility[i] != 0:
-                agent = Agents.agents[i + 1]
+                agent = Agents.agents[i]
                 agent.block_id_visible.append(self.id)
 
 
@@ -130,14 +133,14 @@ class Chain:
     """
     chains = []
 
-    def __init__(self, id_agent, id_block, id_block_father):
+    def __init__(self, id_agent, id_block, id_block_father, fee):
         """
         :param id_agent: id miner of block
         :param id_block: id of block
         :param id_block_father: id of block's father
 
         """
-        self.block = (id_agent, id_block)
+        self.block = (id_agent, id_block, fee)
         self.father = id_block_father
 
     def determineChainOfBlock(self):
@@ -145,25 +148,38 @@ class Chain:
         This function specifies which chain this block belongs to and then adds to it.
         :return: id_chain=(row,column)
         """
-        id_chain = [(k, i) for k in range(len(Chain.chains)) for i, v in
-                    enumerate(Chain.chains[k]) if v[1] == self.father]
-        return id_chain[0]
+        if Chain.chains:
+            id_chain = [(k, i) for k in range(len(Chain.chains)) for i, v in
+                        enumerate(Chain.chains[k]) if v[1] == self.father]
+            return id_chain[0]
+        else:
+            return (0, 0)
 
+    def createChains(self):
+        fee=self.block[2]
+        for chain in Chain.chains:
+            if (0, 0, fee) in chain:
+                chain.pop()
     def addNewBlockToChain(self, place: tuple):
         """
         :param place: tuple of row number and father block number
         :return: updated chains matrix
         """
-        columns = len(Chain.chains[place[0]])
-        if columns == place[1] + 1:
-            # we don't have fork.and block append end of chain.
-            Chain.chains[place[0]].append(self.block)
+        if Chain.chains:
+            chain = Chain.chains[place[0]]
+            len_chain = len(chain)
+            if chain[len_chain - 1][1] == place[1]:
+                # we don't create new fork.and block append end of chain.
+                Chain.chains[place[0]].append(self.block)
+            else:
+                for b in range(len_chain):
+                    if chain[b][1] == place[1]:
+                        # fork.and create new chain.
+                        new_chain = [(0, 0, 0)] * (b + 1)
+                        new_chain[b] = self.block
+                        Chain.chains.append(new_chain)
         else:
-            # fork.and create new chain.
-            n = place[1] + 1
-            chain = [(0, 0)] * n
-            chain[place[1]] = self.block
-            Chain.chains.append(chain)
+            Chain.chains.append([self.block])
         return Chain.chains
 
     @classmethod
@@ -181,7 +197,7 @@ class Chain:
         remove_chain = []
 
         for i in range(len(Chain.chains)):
-            row = [j for j in cls.chains[i] if j != (0, 0)]
+            row = [j for j in cls.chains[i] if j != (0, 0, 0)]
             len_of_each_rows.append(len(row))
         for i in range(1, len(len_of_each_rows) - 1):
             for j in range(i + 1, len(len_of_each_rows)):
@@ -192,7 +208,6 @@ class Chain:
         remove_chain.sort(reverse=True)
         for k in remove_chain:
             cls.chains.pop(k)
-
         return Chain.chains
 
     @classmethod
@@ -205,14 +220,14 @@ class Chain:
         """
         list_of_chains = []
         for i in range(len(cls.chains)):
-            row = [j for j in cls.chains[i] if j != (0, 0)]
+            row = [j for j in cls.chains[i] if j != (0, 0, 0)]
             list_of_chains.append(row)
-
-        for i in range(1, len(list_of_chains) - 1):
-            if list_of_chains[i][0] != list_of_chains[i + 1][0]:
-                break
-        else:
-            cls.chains[0].append(list_of_chains[i][0])
+        if len(cls.chains) > 1:
+            for i in range(0, len(list_of_chains)):
+                if list_of_chains[i][0] != list_of_chains[i + 1][0]:
+                    break
+            else:
+                cls.chains[0].append(list_of_chains[i][0])
         return cls.chains
 
 
